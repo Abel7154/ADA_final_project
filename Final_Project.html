@@ -1377,6 +1377,74 @@ early (I–II) stage at diagnosis.</caption>
 </tr>
 </tbody>
 </table>
+<div id="assumption-for-logistic-regression" class="section level3">
+<h3>Assumption for logistic regression</h3>
+<pre class="r"><code># Simple logistic regression assumption checks for my ADA final project
+# 1 check multicollinearity in logistic regression
+library(car)</code></pre>
+<pre><code>## Warning: package &#39;car&#39; was built under R version 4.5.2</code></pre>
+<pre><code>## Loading required package: carData</code></pre>
+<pre><code>## 
+## Attaching package: &#39;car&#39;</code></pre>
+<pre><code>## The following object is masked from &#39;package:dplyr&#39;:
+## 
+##     recode</code></pre>
+<pre><code>## The following object is masked from &#39;package:purrr&#39;:
+## 
+##     some</code></pre>
+<pre class="r"><code>vif(model_stage_multiv)</code></pre>
+<pre><code>##                GVIF Df GVIF^(1/(2*Df))
+## race_f     1.089163  1        1.043630
+## sex_f      1.043908  1        1.021718
+## age        1.104363  1        1.050887
+## barretts_f 1.338323  2        1.075574
+## tobacco_f  1.114484  1        1.055691
+## hpylori_f  1.223396  2        1.051700</code></pre>
+<pre class="r"><code># 2. Check model convergence and fitted values
+summary(model_stage_multiv)</code></pre>
+<pre><code>## 
+## Call:
+## glm(formula = stage_late ~ race_f + sex_f + age + barretts_f + 
+##     tobacco_f + hpylori_f, family = binomial, data = gec_stage_race)
+## 
+## Coefficients:
+##                                 Estimate Std. Error z value Pr(&gt;|z|)  
+## (Intercept)                      2.62979    1.59243   1.651   0.0987 .
+## race_fBlack or African American  0.06273    0.74272   0.084   0.9327  
+## sex_fFemale                      0.17148    0.63193   0.271   0.7861  
+## age                             -0.02500    0.02327  -1.074   0.2827  
+## barretts_fYes                    0.10799    0.60710   0.178   0.8588  
+## barretts_fUnknown                0.46748    0.65079   0.718   0.4726  
+## tobacco_fYes                    -0.13457    0.54771  -0.246   0.8059  
+## hpylori_fYes                    -0.62331    0.85178  -0.732   0.4643  
+## hpylori_fUnknown                 1.40554    0.56395   2.492   0.0127 *
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## (Dispersion parameter for binomial family taken to be 1)
+## 
+##     Null deviance: 124.35  on 137  degrees of freedom
+## Residual deviance: 112.91  on 129  degrees of freedom
+## AIC: 130.91
+## 
+## Number of Fisher Scoring iterations: 5</code></pre>
+<pre class="r"><code># 3. Quick look at correlations between continuous predictors
+cor(gec_stage_race[, c(&quot;age&quot;)], use = &quot;complete.obs&quot;)</code></pre>
+<pre><code>##     age
+## age   1</code></pre>
+</div>
+<div id="interpretation" class="section level3">
+<h3>Interpretation</h3>
+<p>I checked multicollinearity in the multivariable logistic regression
+using VIFs. All adjusted VIF values were close to 1, suggesting no
+evidence of problematic collinearity between predictors.</p>
+<p>For the logistic regression of late (III–IV) vs early (I–II) stage, I
+treated each patient as an independent observation. Age was the only
+continuous predictor, and I assumed that its relationship with the
+log-odds of late-stage diagnosis was roughly linear. Because the sample
+was small, I focused on fitting a simple model and interpreting odds
+ratios with wide confidence intervals.</p>
+</div>
 </div>
 <div id="overall-survival" class="section level2">
 <h2>Overall survival</h2>

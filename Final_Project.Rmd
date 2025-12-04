@@ -483,6 +483,26 @@ caption = "Table 2. Multivariable logistic regression for late (III–IV) vs ear
 )
 ```
 
+### Assumption for logistic regression
+```{r}
+# Simple logistic regression assumption checks for my ADA final project
+# 1 check multicollinearity in logistic regression
+library(car)
+vif(model_stage_multiv)
+# 2. Check model convergence and fitted values
+summary(model_stage_multiv)
+
+# 3. Quick look at correlations between continuous predictors
+cor(gec_stage_race[, c("age")], use = "complete.obs")
+```
+### Interpretation
+
+I checked multicollinearity in the multivariable logistic regression using VIFs. All adjusted VIF values were close to 1, suggesting no evidence of problematic collinearity between predictors.
+
+For the logistic regression of late (III–IV) vs early (I–II) stage, I treated each patient as an independent observation. Age was the only continuous predictor, and I assumed that its relationship with the log-odds of late-stage diagnosis was roughly linear. Because the sample was small, I focused on fitting a simple model and interpreting odds ratios with wide confidence intervals.
+
+
+
 ## Overall survival
 
 ### Kaplan–Meier curve for the full cohort
