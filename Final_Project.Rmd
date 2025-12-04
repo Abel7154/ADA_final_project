@@ -1,0 +1,805 @@
+---
+title: "ADA_Final_Project"
+author: "Abel Abebe"
+date: "2025-12-01"
+output: html_document
+---
+
+# Introduction
+
+Gastroesophageal cancer (GEC) which includes esophageal, gastroesophageal junction (GEJ), and gastric is an aggressive malignancy with poor prognosis. Delays in diagnosis and differences in access to guideline-concordant care may contribute to disparities in stage at diagnosis and survival across sociodemographic groups. Prior literature suggests that race and sex may influence cancer outcomes, but evidence in single-center contemporary cohorts of GEC is limited.
+
+For my Advanced Data Analysis (ADA) final project, I used data from a retrospective cohort of patients with GEC treated at Siteman Cancer Center to explore whether there are racial and sex differences in:
+
+1. Clinical stage at diagnosis (early [stage I–II] vs late [stage III–IV]), and  
+2. Overall survival from time of diagnosis.
+
+**Research questions**
+
+- Are Black patients more likely than White patients to be diagnosed at late stage (III–IV vs I–II)?  
+- Are there sex differences (female vs male) in late-stage diagnosis?  
+- Are there racial and sex differences in overall survival after adjusting for age and stage at diagnosis?
+
+# Methods
+
+## Data source and study population
+
+I analyzed a retrospective cohort of 150 adult patients with GEC who were treated at Siteman Cancer Center. The analytic dataset was exported from REDCap and includes patients with esophageal adenocarcinoma (EAC), esophageal squamous cell carcinoma (ESSC), GEJ cancers, and gastric adenocarcinoma.
+
+The dataset used for the project is not shared in the GitHub repository because it contains patient-level clinical information.
+
+## Key variables
+
+- **Outcomes**
+  - **Stage at diagnosis (binary)**: early stage (I–II) vs late stage (III–IV), based on clinical staging at diagnosis.
+  - **Overall survival time (months)**: calculated from date of diagnosis to date of death or last follow-up.
+  - **Event indicator**: 1 = died during follow-up, 0 = alive or lost to follow-up at last known contact.
+
+- **Main predictors**
+  - **Race**: White vs Black or African American (patients with unknown race were excluded from regression models involving race).
+  - **Sex**: male vs female.
+
+- **Covariates for logistic regression (stage at diagnosis)**
+  - Age at diagnosis (years, continuous)
+  - History of Barrett’s esophagus (yes / no / unknown)
+  - History of tobacco use (yes / no)
+  - History of *H. pylori* infection (yes / no / unknown)
+
+- **Covariates for Cox model (overall survival)**
+  - Age at diagnosis (years, continuous)
+  - Stage at diagnosis (late [III–IV] vs early [I–II])
+  - Race (White vs Black) and sex (female vs male)
+
+## Statistical analysis
+
+All analyses were conducted in R using R Markdown.
+
+1. **Descriptive analyses (Table 1)**  
+   - I summarized sociodemographic and clinical characteristics of the cohort overall, including age, BMI, sex, race, history of Barrett’s esophagus, tobacco use, *H. pylori* infection, cancer type, stage at diagnosis, chemotherapy, radiation, recurrence, and vital status.
+
+2. **Stage at diagnosis (logistic regression)**
+   - I created a binary variable for stage at diagnosis: early (I–II) vs late (III–IV). Patients with unknown/missing stage were excluded from regression models.
+   - I first fit separate **univariable logistic regression models** with late vs early stage as the outcome and race or sex as the predictor.
+   - I then fit a **multivariable logistic regression model** with late vs early stage as the outcome and race and sex as the main predictors, adjusting for age, history of Barrett’s esophagus, tobacco use, and *H. pylori* infection.
+   - I reported odds ratios (ORs) with 95% confidence intervals (CIs) and p-values (Table 2).
+
+3. **Overall survival (Kaplan–Meier and Cox models)**
+   - I calculated survival time in months from diagnosis to death or last follow-up and created an event indicator (1 = death, 0 = alive or lost to follow-up).
+   - I described overall survival using Kaplan–Meier (KM) curves for the whole cohort and stratified by race and sex, and compared curves using log-rank tests.
+   - For regression, I restricted to patients with known race (White or Black) and known stage (I–IV).
+   - I fit a **multivariable Cox proportional hazards model** with overall survival as the outcome and race and sex as the main predictors, adjusting for age and stage at diagnosis (late vs early).
+   - I reported hazard ratios (HRs) with 95% CIs and p-values (Table 3) and checked the proportional hazards assumption using Schoenfeld residuals.
+
+All analyses are exploratory and based on a relatively small, single-center cohort, so results should be interpreted cautiously.
+
+
+### Packages and libraries
+
+```{r}
+# install.packages("pacman")
+pacman::p_load(
+  tidyverse,   # data cleaning, recoding, tables
+  table1,      # Table 1
+  survival,    # Surv(), coxph(), survfit()
+  survminer,   # ggsurvplot()
+  broom,       # tidy() for model output
+  lubridate    # working with dates
+)
+```
+
+
+
+### Gastroesophageal cancer data
+
+```{r}
+# Read in gastroesophageal cancer data from my REDCap export
+gec <- read_csv("RetrospectiveStudyOf_DATA.csv")
+```
+```{r}
+
+# Check the variable names in my gastroesophageal cancer dataset for my ADA final project
+
+colnames(gec)
+```
+### Variables for my ADA final project
+
+```{r}
+# Recode key variables (demographics, risk factors, cancer type, stage, treatment, status)
+
+gec <- gec %>%
+mutate(
+# Age and BMI
+  
+# rename age variable to 'age'
+age = age_at_death_follow_up, 
+# convert BMI from character to numeric
+bmi = as.numeric(bmi_at_dx), 
+
+# Sex
+sex_f = factor(
+  sex,
+  levels = c(1, 2),
+  labels = c("Male", "Female")
+),
+
+# Race
+race_f = factor(
+  race,
+  levels = c(1, 2, 5),
+  labels = c("White",
+             "Black or African American",
+             "Unknown")
+),
+
+# History of Barrett esophagus
+barretts_f = case_when(
+  hx_of_barretts == 1 ~ "Yes",
+  hx_of_barretts == 0 ~ "No",
+  hx_of_barretts == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+barretts_f = factor(barretts_f,
+                    levels = c("No", "Yes", "Unknown")),
+
+# History of tobacco use
+tobacco_f = case_when(
+  tobacco_yn == 1 ~ "Yes",
+  tobacco_yn == 0 ~ "No",
+  tobacco_yn == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+tobacco_f = factor(tobacco_f,
+                   levels = c("No", "Yes", "Unknown")),
+
+# History of H. pylori infection
+hpylori_f = case_when(
+  h_pylori_yn == 1 ~ "Yes",
+  h_pylori_yn == 0 ~ "No",
+  h_pylori_yn == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+hpylori_f = factor(hpylori_f,
+                   levels = c("No", "Yes", "Unknown")),
+
+# Gastroesophageal cancer type
+cancer_type_f = case_when(
+  gastroeso_cancer_type == 1 ~ "Esophageal adenocarcinoma",
+  gastroeso_cancer_type == 2 ~ "GEJ adenocarcinoma",
+  gastroeso_cancer_type == 3 ~ "Distal esophageal/GEJ adenocarcinoma",
+  gastroeso_cancer_type == 4 ~ "Esophageal squamous cell carcinoma",
+  gastroeso_cancer_type == 5 ~ "Gastric adenocarcinoma",
+  gastroeso_cancer_type == 6 ~ "GEJ/gastric adenocarcinoma",
+  gastroeso_cancer_type == 7 ~ "Other",
+  gastroeso_cancer_type == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+cancer_type_f = factor(cancer_type_f),
+
+# Clinical stage at diagnosis
+stage_f = case_when(
+  stage_at_diagnosis == 1 ~ "Stage I",
+  stage_at_diagnosis == 2 ~ "Stage II",
+  stage_at_diagnosis == 3 ~ "Stage III",
+  stage_at_diagnosis == 4 ~ "Stage IV",
+  TRUE ~ NA_character_        # this includes 9 = Unknown
+),
+stage_f = factor(stage_f,
+                 levels = c("Stage I", "Stage II", "Stage III", "Stage IV")),
+
+# Chemotherapy received
+chemo_f = case_when(
+  chemo_received == 1 ~ "Yes",
+  chemo_received == 2 ~ "No",
+  chemo_received == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+chemo_f = factor(chemo_f,
+                 levels = c("No", "Yes", "Unknown")),
+
+# Chemotherapy regimen
+chemo_regimen_f = case_when(
+  name_chemo_option == 1 ~ "Carboplatin + Paclitaxel",
+  name_chemo_option == 2 ~ "FOLFOX",
+  name_chemo_option == 3 ~ "5-FU",
+  name_chemo_option == 4 ~ "FLOT",
+  name_chemo_option == 5 ~ "FOLFIRI",
+  name_chemo_option == 6 ~ "Other",
+  name_chemo_option == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+chemo_regimen_f = factor(chemo_regimen_f),
+
+# Radiation therapy
+radiation_f = case_when(
+  radiation_therapy_yn == 1 ~ "Yes",
+  radiation_therapy_yn == 0 ~ "No",
+  radiation_therapy_yn == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+radiation_f = factor(radiation_f,
+                     levels = c("No", "Yes", "Unknown")),
+
+# Recurrence
+recurrence_f = case_when(
+  recurrence == 1 ~ "Yes",
+  recurrence == 2 ~ "No",
+  recurrence == 3 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+recurrence_f = factor(recurrence_f,
+                      levels = c("No", "Yes", "Unknown")),
+
+# Vital status at last follow-up
+status_f = case_when(
+  status == 1 ~ "Alive",
+  status == 2 ~ "Deceased",
+  status == 9 ~ "Unknown",
+  TRUE ~ NA_character_
+),
+status_f = factor(status_f,
+                  levels = c("Alive", "Deceased", "Unknown"))
+
+)
+```
+
+```{r}
+# Check recoded variables in my gastroesophageal cancer dataset for my ADA final project
+
+summary(gec[, c(
+"age", "bmi",
+"sex_f", "race_f",
+"barretts_f", "tobacco_f", "hpylori_f",
+"cancer_type_f", "stage_f",
+"chemo_f", "chemo_regimen_f",
+"radiation_f", "recurrence_f",
+"status_f"
+)])
+```
+
+### Clean analytic dataset
+```{r}
+# Create an analytic dataset for my ADA final project with only variables I need
+
+gec_analytic <- gec %>%
+dplyr::select(
+record_id,
+age, bmi,
+sex_f, race_f,
+barretts_f, tobacco_f, hpylori_f,
+cancer_type_f, stage_f,
+chemo_f, chemo_regimen_f,
+radiation_f, recurrence_f,
+status_f,
+date_at_diagnosis,
+date_last_fu, date_of_death, date_last_follow
+)
+```
+
+
+# Results
+
+## Descriptive characteristics
+
+Table 1 summarizes sociodemographic and clinical characteristics of the 150 patients in the cohort. The mean age at diagnosis was about 65 years, and median BMI was approximately 28. Most patients were male (79%) and White (87%); 13% were Black or African American and 1 patient had unknown race. Tobacco use history was common (70%). Nearly half of the cohort had *H. pylori* status recorded as unknown. The most common cancer types were EAC and GEJ adenocarcinoma. Almost half of patients (46%) were diagnosed at stage IV, and the majority received chemotherapy.
+
+
+
+### Labels for Table 1 variables
+
+```{r}
+# Add variable labels for my ADA final project Table 1
+
+label(gec_analytic$age) <- "Age at diagnosis (years)"
+label(gec_analytic$bmi) <- "BMI at diagnosis (kg/m^2)"
+label(gec_analytic$sex_f) <- "Sex"
+label(gec_analytic$race_f) <- "Race"
+label(gec_analytic$barretts_f) <- "History of Barrett's esophagus"
+label(gec_analytic$tobacco_f) <- "History of tobacco use"
+label(gec_analytic$hpylori_f) <- "History of H. pylori infection"
+label(gec_analytic$cancer_type_f) <- "Gastroesophageal cancer type"
+label(gec_analytic$stage_f) <- "Clinical stage at diagnosis"
+label(gec_analytic$chemo_f) <- "Chemotherapy received"
+label(gec_analytic$chemo_regimen_f) <- "Chemotherapy regimen"
+label(gec_analytic$radiation_f) <- "Radiation therapy received"
+label(gec_analytic$recurrence_f) <- "Recurrence"
+label(gec_analytic$status_f) <- "Patient status"
+```
+
+
+## Table 1: Overall characteristics
+
+```{r}
+# Table 1: Overall sociodemographic and clinical characteristics
+table1(
+~ age + bmi +
+sex_f + race_f +
+barretts_f + tobacco_f + hpylori_f +
+cancer_type_f + stage_f +
+chemo_f + chemo_regimen_f +
+radiation_f + recurrence_f +
+status_f,
+data = gec_analytic,
+overall = "Total",
+rowlabelhead = "Variable"
+)
+```
+
+
+### Early vs late stage variable
+
+```{r}
+# Create binary clinical stage at diagnosis (early vs late) for my ADA final project
+
+gec_analytic <- gec_analytic %>%
+mutate(
+stage_late = case_when(
+stage_f %in% c("Stage I", "Stage II") ~ 0, # early stage
+stage_f %in% c("Stage III", "Stage IV") ~ 1, # late stage
+TRUE ~ NA_real_ # keep unknown/missing as NA
+),
+stage_late = factor(
+stage_late,
+levels = c(0, 1),
+labels = c("Early stage (I–II)", "Late stage (III–IV)")
+)
+)
+
+# Create analytic dataset for stage-at-diagnosis models (drop missing stage)
+gec_stage <- gec_analytic %>%
+filter(!is.na(stage_late))
+
+```
+
+
+### Early vs late stage distribution
+
+```{r}
+# Check distribution of early vs late stage
+table(gec_stage$stage_late)
+prop.table(table(gec_stage$stage_late)) # proportions
+
+# stage by race and sex
+table(gec_stage$stage_late, gec_stage$race_f)
+table(gec_stage$stage_late, gec_stage$sex_f)
+```
+
+## Stage at diagnosis (early vs late)
+
+### Univariable logistic regression
+
+In univariable models with late (III–IV) vs early (I–II) stage as the outcome:
+
+- **Race**: Compared with White patients, Black patients had slightly lower odds of late-stage diagnosis, but the 95% CI was very wide and crossed 1, and the p-value was not significant. (OR = 1.00; 95% CI 0.29–4.60; p = 1.00)  
+- **Sex**: Female patients also had slightly higher odds of late-stage diagnosis compared with males, but again the CI crossed 1 and the p-value was not significant. (OR = 1.24; 95% CI 0.42–4.57; p = 0.72)
+
+These univariable results suggest no clear evidence of racial or sex differences in late-stage diagnosis in this small cohort.
+
+
+```{r}
+# Restrict to White and Black patients (exclude Unknown race)
+gec_stage_race <- gec_stage %>%
+filter(race_f != "Unknown")
+```
+
+
+### Univariable logistic regression by race
+```{r}
+# Univariable logistic regression for late vs early stage by race
+model_stage_race <- glm(
+stage_late ~ race_f,
+data = subset(gec_stage, race_f != "Unknown"),
+family = binomial
+)
+
+# Get ORs, 95% CIs, and p-values for race (White vs Black)
+
+tidy(model_stage_race, exponentiate = TRUE, conf.int = TRUE)
+```
+
+
+### Univariable logistic regression by sex
+
+```{r}
+# Univariable logistic regression for late vs early stage by sex
+model_stage_sex <- glm(
+stage_late ~ sex_f,
+data = gec_stage,
+family = binomial
+)
+
+tidy(model_stage_sex, exponentiate = TRUE, conf.int = TRUE)
+```
+
+
+### Multivariable logistic model
+```{r}
+# Multivariable logistic regression: late (III–IV) vs early (I–II) stage at diagnosis
+# Key predictors: race and sex
+# Covariates: age, Barrett's esophagus, tobacco use, H. pylori infection
+
+model_stage_multiv <- glm(
+stage_late ~ race_f + sex_f + age +
+barretts_f + tobacco_f + hpylori_f,
+data = gec_stage_race,
+family = binomial
+)
+
+# Adjusted odds ratios (aOR) with 95% CIs
+
+stage_multiv_results <- broom::tidy(
+model_stage_multiv,
+exponentiate = TRUE,
+conf.int = TRUE
+)
+stage_multiv_results
+```
+
+
+### Multivariable logistic regression (Table 2)
+
+After adjusting for sex, age, history of Barrett’s esophagus, tobacco use, and *H. pylori* infection, I did not find strong evidence that race or sex were associated with late-stage diagnosis:
+
+- **Race (Black vs White)**: aOR ≈ 1.06 (95% CI ~0.27–5.42, p ≈ 0.93).  
+- **Sex (Female vs Male)**: aOR ≈ 1.19 (95% CI ~0.37–4.63, p ≈ 0.79).  
+
+The only variable that showed a statistically significant association with late-stage diagnosis was **unknown *H. pylori* status vs no *H. pylori*** (aOR ~4.08, 95% CI ~1.43–13.56, p ≈ 0.01). This likely reflects missingness patterns or documentation practices rather than a true biologic effect.
+
+Overall, within this cohort there was no clear evidence of racial or sex disparities in stage at diagnosis, although the estimates are imprecise due to small sample size.
+
+
+## Table 2: Multivariable logistic regression for late (III–IV) vs early (I–II) stage
+
+```{r}
+# Load packages
+library(dplyr)
+library(knitr)
+stage_multiv_table <- stage_multiv_results %>%
+  
+# drop intercept
+dplyr::filter(term != "(Intercept)") %>%
+  
+# make readable labels for predictors
+dplyr::mutate(
+Predictor = dplyr::recode(
+term,
+"race_fBlack or African American" = "Race: Black vs White",
+"sex_fFemale" = "Sex: Female vs Male",
+"age" = "Age (per year)",
+"barretts_fYes" = "Barrett's esophagus: Yes vs No",
+"barretts_fUnknown" = "Barrett's esophagus: Unknown vs No",
+"tobacco_fYes" = "Tobacco use: Yes vs No",
+"hpylori_fYes" = "H. pylori: Yes vs No",
+"hpylori_fUnknown" = "H. pylori: Unknown vs No"
+),
+OR = round(estimate, 2),
+CI = paste0(round(conf.low, 2), "-", round(conf.high, 2)),
+p_value = round(p.value, 3)
+) %>%
+dplyr::select(Predictor, OR, CI, p_value)
+
+knitr::kable(
+stage_multiv_table,
+caption = "Table 2. Multivariable logistic regression for late (III–IV) vs early (I–II) stage at diagnosis."
+)
+```
+
+## Overall survival
+
+### Kaplan–Meier curve for the full cohort
+
+The overall KM curve shows that survival declines steadily over time. The estimated median overall survival is around 36 months after diagnosis, with wide confidence bands, reflecting the limited number of events. At 12 months, the survival probability is still relatively high, but by around 3 years roughly half of the cohort has died or is censored.
+
+
+### Load survival packages (for KM + Cox)
+
+```{r}
+# Load packages for survival analysis
+library(lubridate)
+library(dplyr)
+library(survival)
+library(survminer)
+```
+
+
+### Survival time and event variables
+
+```{r}
+# Create survival time and event indicator
+gec_surv <- gec_analytic %>%
+
+# Convert character dates to Date class
+mutate(
+dx_date = dmy(date_at_diagnosis),
+death_dt = dmy(date_of_death),
+lastfu_dt = dmy(date_last_fu),
+lastunk_dt = dmy(date_last_follow)
+) %>%
+
+# Choose the appropriate end date for follow-up
+mutate(
+end_date = case_when(
+status_f == "Deceased" & !is.na(death_dt) ~ death_dt,
+status_f == "Alive" & !is.na(lastfu_dt) ~ lastfu_dt,
+status_f == "Unknown" & !is.na(lastunk_dt) ~ lastunk_dt,
+TRUE ~ NA
+)
+) %>%
+
+# Compute survival time in months and event indicator
+mutate(
+surv_time_mo = time_length(interval(dx_date, end_date), unit = "month"),
+event = case_when(
+status_f == "Deceased" ~ 1, # died
+status_f %in% c("Alive", "Unknown") ~ 0, # censored
+TRUE ~ NA_real_
+)
+) %>%
+
+# Keep only observations with valid follow-up
+
+filter(
+!is.na(surv_time_mo),
+surv_time_mo > 0,
+!is.na(event)
+)
+
+# Quick check of survival variables in months
+nrow(gec_surv)
+
+summary(dplyr::select(
+gec_surv,
+surv_time_mo, event, race_f, sex_f, status_f
+))
+
+```
+- Among 149 patients with analyzable survival data, median follow-up time was 
+about 11.7 months (IQR ≈ 5.7–18.6 months, range 0.07–54.4 months).
+- About 25% of patients experienced the event (death), 
+while the majority were still alive at last follow-up.
+
+
+
+
+### Overall KM curve (time in months)
+
+```{r}
+
+# Create survival object using months as the time scale
+surv_obj <- Surv(time = gec_surv$surv_time_mo, event = gec_surv$event)
+
+# Fit overall KM curve
+km_overall <- survfit(surv_obj ~ 1, data = gec_surv)
+
+# Plot overall KM curve
+ggsurvplot(
+km_overall,
+data = gec_surv,
+conf.int = TRUE,
+pval = FALSE,
+xlab = "Time since diagnosis (months)",
+ylab = "Overall survival probability",
+ggtheme = theme_minimal()
+)
+
+```
+
+## Interpretation of Overall KM curve
+
+At diagnosis, overall survival starts at 1.0 and declines over time, with the steepest drop in the first 2–3 years after diagnosis.  
+The survival curve crosses 0.50 at roughly **36 months**, suggesting a median overall survival of about 3 years in this cohort.  
+Many censoring marks appear throughout follow-up, and the grey confidence band widens after ~30–35 months, indicating increasing uncertainty in the survival estimates at longer times. 
+
+
+### KM curves by race (White vs Black)
+
+```{r}
+# KM curves by race (White vs Black)
+gec_surv_race <- gec_surv %>%
+filter(race_f != "Unknown") %>%
+mutate(race_f = droplevels(race_f))
+
+# Fit KM curves by race
+km_race <- survfit(
+Surv(surv_time_mo, event) ~ race_f,
+data = gec_surv_race
+)
+
+# Plot KM curves by race
+ggsurvplot(
+km_race,
+data = gec_surv_race,
+conf.int = TRUE,
+pval = TRUE,
+xlab = "Time since diagnosis (months)",
+ylab = "Overall survival probability",
+legend.title = "Race",
+legend.labs = levels(gec_surv_race$race_f), # now length = 2
+ggtheme = theme_minimal()
+)
+
+```
+
+### Interpretation of KM curves by race (White vs Black)
+
+When I compared KM curves for White vs Black patients, the curves overlapped substantially and the log-rank test was not statistically significant (p ≈ 0.78). The estimated median survival appeared somewhat shorter for Black patients than for White patients, but the confidence bands were wide and the small number of Black patients and deaths makes it hard to draw firm conclusions. Overall, I did not find strong evidence of racial differences in overall survival in this cohort.
+
+
+### KM curves by sex
+
+```{r}
+# KM curves by sex
+km_sex <- survfit(
+Surv(surv_time_mo, event) ~ sex_f,
+data = gec_surv
+)
+
+# Plot KM curves by sex
+ggsurvplot(
+km_sex,
+data = gec_surv,
+conf.int = TRUE,
+pval = TRUE,
+xlab = "Time since diagnosis (months)",
+ylab = "Overall survival probability",
+legend.title = "Sex",
+legend.labs = levels(gec_surv$sex_f),
+ggtheme = theme_minimal()
+)
+
+```
+
+### Interpretation of KM curves by sex
+
+KM curves for males and females also showed some visual differences, but the log-rank test was not statistically significant (p ≈ 0.17). Female patients’ survival curve dropped earlier and then remained fairly flat, while the male curve declined more gradually. Given the small sample size and few events in females, these patterns are unstable and should be interpreted cautiously.
+
+
+
+### Cox PH model (survival ~ race + sex + covariates)
+
+```{r}
+# Recreate early vs late clinical stage in my survival dataset
+gec_surv <- gec_surv %>%
+mutate(
+stage_late = case_when(
+stage_f %in% c("Stage I", "Stage II") ~ 0, # early stage
+stage_f %in% c("Stage III", "Stage IV") ~ 1, # late stage
+TRUE ~ NA_real_ # keep unknown/missing as NA
+),
+stage_late = factor(
+stage_late,
+levels = c(0, 1),
+labels = c("Early stage (I–II)", "Late stage (III–IV)")
+)
+)
+
+# Create analytic dataset for Cox models for my ADA final project
+# (keep White and Black, drop Unknown race)
+gec_surv_cox <- gec_surv %>%
+filter(
+race_f %in% c("White", "Black or African American"),
+!is.na(stage_late)
+)
+```
+
+
+### Multivariable Cox model with race, sex, age, and stage:
+
+```{r}
+# Multivariable Cox proportional hazards model for my ADA final project
+# Outcome: overall survival time (months) and death event
+# Key predictors: race_f, sex_f
+# Covariates: age at diagnosis, late vs early stage at diagnosis
+cox_model <- coxph(
+Surv(surv_time_mo, event) ~ race_f + sex_f + age + stage_late,
+data = gec_surv_cox
+)
+
+summary(cox_model)
+
+```
+
+
+
+### Hazard ratios with 95% CIs:
+
+```{r}
+# Tidy Cox model output with hazard ratios (HR) and 95% CI
+cox_results <- broom::tidy(
+cox_model,
+exponentiate = TRUE,
+conf.int = TRUE
+)
+
+cox_results
+
+```
+
+### Interpretation of multivariable Cox model (HRs and 95% CIs)
+
+In the Cox model adjusting for race, sex, age, and stage at diagnosis:
+
+- **Race (Black vs White)**: HR ~0.82 (95% CI ~0.28–2.34, p ≈ 0.70), suggesting no clear difference in hazard of death by race.
+- **Sex (Female vs Male)**: HR ~2.02 (95% CI ~0.87–4.73, p ≈ 0.10). Female patients had roughly twice the hazard of death compared with males, but the CI is wide and includes 1, so this was not statistically significant.
+- **Age**: HR ~1.02 per year (95% CI ~0.99–1.05, p ≈ 0.30), indicating no strong association between age and survival after adjustment.
+- **Stage at diagnosis (late vs early)**: HR ~6.98 (95% CI ~0.95–51.14, p ≈ 0.06). Patients diagnosed at late stage had much higher hazards of death than those diagnosed at early stage, and although the CI is wide and the p-value is just above 0.05, this is clinically consistent with more advanced disease having worse outcomes.
+
+
+### Cox PH assumption
+
+```{r}
+# Check proportional hazards assumption for my Cox model
+cox_ph_test <- cox.zph(cox_model)
+cox_ph_test
+
+```
+
+### Interpretation of proportional hazards (PH) assumption check
+
+For each covariate, the cox.zph test p-values were > 0.05 (race p = 0.97, sex p = 0.63, age p = 0.17, stage p = 0.66).The global PH test was also non-significant (χ² = 2.12, df = 4, p = 0.71).
+Taken together, there is no strong evidence of violation of the proportional hazards assumption for this Cox model, so the PH assumption appears reasonable for your analysis.
+
+
+### Table 3: Multivariable Cox proportional hazards model for overall survival
+
+```{r}
+# using my cox_results object for my ADA final project
+cox_table <- cox_results %>%
+
+# drop intercept if present
+dplyr::filter(term != "(Intercept)", !is.na(estimate)) %>%
+
+# make readable labels for predictors
+dplyr::mutate(
+Predictor = dplyr::recode(
+term,
+"race_fBlack or African American" = "Race: Black vs White",
+"sex_fFemale" = "Sex: Female vs Male",
+"age" = "Age (per year)",
+"stage_lateLate stage (III–IV)" = "Stage at diagnosis: Late (III–IV) vs Early (I–II)"
+),
+HR = round(estimate, 2),
+CI = paste0(round(conf.low, 2), "-", round(conf.high, 2)),
+p_value = round(p.value, 3)
+) %>%
+dplyr::select(Predictor, HR, CI, p_value)
+
+knitr::kable(
+cox_table,
+caption = "Table 3. Multivariable Cox proportional hazards model for overall survival."
+)
+
+```
+
+
+
+# Discussion
+
+In this ADA final project, I used a retrospective cohort of 150 patients with GEC treated at Siteman Cancer Center to explore race and sex differences in stage at diagnosis and overall survival. In descriptive analyses, most patients were male and White, with a high prevalence of tobacco use and a large proportion diagnosed at stage III–IV.
+
+In both univariable and multivariable logistic regression models, I did not find strong evidence that race or sex were associated with late-stage diagnosis. The only statistically significant predictor of late stage was unknown *H. pylori* status, which likely reflects patterns of missing data or incomplete testing rather than a true causal effect.
+
+Similarly, Kaplan–Meier curves and multivariable Cox models did not show clear racial or sex disparities in overall survival. Point estimates suggested that female patients and those with late-stage disease had higher hazards of death, but the confidence intervals were wide and most associations were not statistically significant. The strong, clinically plausible effect of late stage on survival reinforces the importance of early detection and diagnosis.
+
+**Limitations**
+
+- The sample size was small, especially for Black and female patients, resulting in low statistical power and wide confidence intervals.
+- This was a single-center cohort, which may limit generalizability to other settings.
+- Several variables had substantial missing or “unknown” categories (e.g., *H. pylori* status, Barrett’s esophagus), which may introduce bias.
+- I did not adjust for other important clinical factors such as comorbidities, performance status, or detailed treatment sequencing, which could confound associations between race/sex and outcomes.
+
+**Implications and next steps**
+
+Although I did not find strong evidence of racial or sex disparities in this small cohort, the analysis primarily shows how limited power and missing data can influence estimates. In future work, I would like to:
+
+- Expand the cohort to include more patients and longer follow-up,  
+- Incorporate additional covariates (e.g., comorbidities, treatment patterns, biomarkers), and  
+- Use more flexible modeling approaches to better understand potential inequities in stage at diagnosis and survival.
+
+This project helped me practice the full workflow from data cleaning and recoding to regression modeling and survival analysis using R Markdown.
+
+
+
+
+
+
+
