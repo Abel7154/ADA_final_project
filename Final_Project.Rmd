@@ -736,7 +736,7 @@ cox_ph_test
 ### Interpretation of proportional hazards (PH) assumption check
 
 For each covariate, the cox.zph test p-values were > 0.05 (race p = 0.97, sex p = 0.63, age p = 0.17, stage p = 0.66).The global PH test was also non-significant (χ² = 2.12, df = 4, p = 0.71).
-Taken together, there is no strong evidence of violation of the proportional hazards assumption for this Cox model, so the PH assumption appears reasonable for your analysis.
+Taken together, there is no strong evidence of violation of the proportional hazards assumption for this Cox model, so the PH assumption appears reasonable for the analysis.
 
 
 ### Table 3: Multivariable Cox proportional hazards model for overall survival
